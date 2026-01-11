@@ -2,12 +2,11 @@ import ccxt
 import pandas as pd
 import time
 
-# Bybit Futures bağlantısı
 exchange = ccxt.bybit({
     'enableRateLimit': True,
     'timeout': 30000,
     'options': {
-        'defaultType': 'linear'  # USDT Perpetual
+        'defaultType': 'spot'
     }
 })
 
@@ -17,19 +16,23 @@ LIMIT = 100
 def get_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
 
-def get_bybit_usdt_futures_symbols():
+def get_all_bybit_spot_usdt_symbols():
     """
-    SADECE USDT perpetual futures
+    SADECE SPOT + USDT
+    Bu fonksiyon SADECE 1 KERE çağrılmalı
     """
     markets = exchange.fetch_markets()
     return [
-        m['symbol'] for m in markets
-        if m.get('linear') and m.get('quote') == 'USDT'
+        m['symbol']
+        for m in markets
+        if m.get('spot')
+        and m.get('quote') == 'USDT'
+        and m.get('active')
     ]
 
 def check_ema_crossover(symbol):
     try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=TIMEFRAME, limit=LIMIT)
+        ohlcv = exchange.fetch_ohlcv(symbol, TIMEFRAME, limit=LIMIT)
         df = pd.DataFrame(
             ohlcv,
             columns=['time', 'open', 'high', 'low', 'close', 'volume']
@@ -38,29 +41,29 @@ def check_ema_crossover(symbol):
         df['ema9'] = get_ema(df['close'], 9)
         df['ema21'] = get_ema(df['close'], 21)
 
-        prev = df.iloc[-2]
-        last = df.iloc[-1]
-
-        return prev['ema9'] < prev['ema21'] and last['ema9'] > last['ema21']
+        return (
+            df['ema9'].iloc[-2] < df['ema21'].iloc[-2] and
+            df['ema9'].iloc[-1] > df['ema21'].iloc[-1]
+        )
 
     except Exception:
         return False
 
-def scan_bybit_futures():
-    symbols = get_bybit_usdt_futures_symbols()
-    crossed = []
+def scan_bybit_spot_all():
+    symbols = get_all_bybit_spot_usdt_symbols()
+    results = []
 
     for symbol in symbols:
         if check_ema_crossover(symbol):
-            crossed.append(symbol)
+            results.append(symbol)
 
-        time.sleep(0.15)  # Cloud rate-limit koruması
+        time.sleep(0.35)  # SPOT için güvenli gecikme
 
-    return crossed
+    return results
 
 if __name__ == "__main__":
-    results = scan_bybit_futures()
+    coins = scan_bybit_spot_all()
 
-    print("Bybit EMA 9 / EMA 21 yukarı kesişim:")
-    for coin in results:
-        print(coin)
+    print("Bybit SPOT (Tüm USDT) – EMA 9 / 21 yukarı kesişim:")
+    for c in coins:
+        print(c)
